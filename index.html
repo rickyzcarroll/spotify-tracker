@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Spotify Stats Tracker</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>Spotify Stats Tracker</h1>
+    <button id="login-btn">Login with Spotify</button>
+    <div id="stats" style="display:none;">
+      <h2>Your Top Artists</h2>
+      <ul id="artist-list"></ul>
+      <canvas id="artist-chart"></canvas>
+
+      <h2>Your Top Tracks</h2>
+      <ul id="track-list"></ul>
+      <canvas id="track-chart"></canvas>
+    </div>
+  </div>
+  <script src="script.js"></script>
+</body>
+</html>
