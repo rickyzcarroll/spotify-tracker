@@ -1,26 +1,39 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Spotify Stats Tracker</title>
-  <link rel="stylesheet" href="style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-</head>
-<body>
-  <div class="container">
-    <h1>Spotify Stats Tracker</h1>
-    <button id="login-btn">Login with Spotify</button>
-    <div id="stats" style="display:none;">
-      <h2>Your Top Artists</h2>
-      <ul id="artist-list"></ul>
-      <canvas id="artist-chart"></canvas>
+<!-- Setup Modal -->
+<div id="setupModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.6);">
+  <div style="max-width:640px; margin:5% auto; background:#fff; padding:20px; border-radius:12px;">
+    <h2>Connect to Spotify</h2>
+    <ol>
+      <li>Go to <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify Developer Dashboard</a>.</li>
+      <li>Create an app (name anything). No client secret needed.</li>
+      <li>Add this as a Redirect URI:<br>
+        <code id="redirectUriCode"></code>
+        <button id="copyRedirectBtn" type="button">Copy</button>
+      </li>
+      <li>Copy the <b>Client ID</b> and paste it below.</li>
+    </ol>
 
-      <h2>Your Top Tracks</h2>
-      <ul id="track-list"></ul>
-      <canvas id="track-chart"></canvas>
+    <label for="clientIdInput">Spotify Client ID</label>
+    <input id="clientIdInput" type="text" placeholder="e.g. 123abc..." style="width:100%; padding:8px; margin:8px 0;" />
+
+    <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+      <label><input id="rememberClientId" type="checkbox" checked> Remember on this device</label>
     </div>
+
+    <div style="margin-top:16px; display:flex; gap:8px;">
+      <button id="saveClientIdBtn" type="button">Save & Continue</button>
+      <button id="cancelSetupBtn" type="button">Cancel</button>
+    </div>
+
+    <hr style="margin:16px 0;">
+    <details>
+      <summary>Why do I need this?</summary>
+      <p>Spotify requires OAuth for personal data. Your Client ID isn’t secret; it just identifies your app. It’s stored locally in your browser, not in the code or repository.</p>
+    </details>
   </div>
-  <script src="script.js"></script>
-</body>
-</html>
+</div>
+
+<!-- Optional: account controls in your header -->
+<div id="accountControls" style="display:none; margin:8px 0;">
+  <button id="changeClientIdBtn" type="button">Change Client ID</button>
+  <button id="clearSessionBtn" type="button">Sign out</button>
+</div>
