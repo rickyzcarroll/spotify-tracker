@@ -1,0 +1,31 @@
+body {
+  font-family: Arial, sans-serif;
+  background: #121212;
+  color: white;
+  text-align: center;
+  padding: 20px;
+}
+
+button {
+  background: #1DB954;
+  color: white;
+  padding: 10px 20px;
+  font-size: 1rem;
+  border: none;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1ed760;
+}
+
+.container {
+  max-width: 800px;
+  margin: auto;
+}
+
+canvas {
+  margin: 20px 0;
+  background: white;
+  border-radius: 8px;
+}
