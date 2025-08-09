@@ -1,8 +1,10 @@
-// ===== Storage: keep client ID out of code =====
+// ===========================
+// Config & storage utilities
+// ===========================
 const STORAGE_KEYS = {
   CLIENT_ID: 'spotify_client_id',
   CODE_VERIFIER: 'spotify_code_verifier',
-  TOKENS: 'spotify_tokens'
+  TOKENS: 'spotify_tokens', // { access_token, refresh_token, expires_in, token_type, scope, expires_at }
 };
 
 function getClientId() {
@@ -11,12 +13,12 @@ function getClientId() {
 
 function setClientId(id, persist = true) {
   if (!id || !id.trim()) return;
-  // Persist locally or for session only
+  const clean = id.trim();
   if (persist) {
-    localStorage.setItem(STORAGE_KEYS.CLIENT_ID, id.trim());
+    localStorage.setItem(STORAGE_KEYS.CLIENT_ID, clean);
     sessionStorage.removeItem(STORAGE_KEYS.CLIENT_ID);
   } else {
-    sessionStorage.setItem(STORAGE_KEYS.CLIENT_ID, id.trim());
+    sessionStorage.setItem(STORAGE_KEYS.CLIENT_ID, clean);
     localStorage.removeItem(STORAGE_KEYS.CLIENT_ID);
   }
 }
@@ -26,22 +28,28 @@ function clearClientId() {
   sessionStorage.removeItem(STORAGE_KEYS.CLIENT_ID);
 }
 
-// ===== Redirect URI is computed so forks/Pages work automatically =====
+function setStatus(msg) {
+  const el = document.getElementById('statusText');
+  const card = document.getElementById('statusCard');
+  if (el && card) {
+    el.textContent = String(msg);
+    card.style.display = 'block';
+  }
+}
+
+// Always return the site root with trailing slash (works for GH Pages project sites, forks, custom domains)
 function getRedirectUri() {
-  return new URL('./', window.location.href).href; 
+  return new URL('./', window.location.href).href; // e.g., https://username.github.io/spotify-tracker/
 }
 
+function fillRedirectUri() {
+  const el = document.getElementById('redirectUriCode');
+  if (el) el.textContent = getRedirectUri();
+}
 
-// ===== PKCE utilities =====
-async function sha256(plain) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(plain);
-  return await crypto.subtle.digest('SHA-256', data);
-}
-function base64UrlEncode(bytes) {
-  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
+// ===========================
+// PKCE helpers
+// ===========================
 function randomString(n = 64) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
   let s = '';
@@ -49,6 +57,20 @@ function randomString(n = 64) {
   return s;
 }
 
+async function sha256(plain) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(plain);
+  return await crypto.subtle.digest('SHA-256', data);
+}
+
+function base64UrlEncode(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// ===========================
+// Auth flow
+// ===========================
 async function startLogin(scopes = [
   'user-read-email',
   'user-top-read',
@@ -71,31 +93,35 @@ async function startLogin(scopes = [
     redirect_uri: getRedirectUri(),
     scope: scopes.join(' '),
     code_challenge_method: 'S256',
-    code_challenge: challenge
+    code_challenge: challenge,
   });
-  window.location = `https://accounts.spotify.com/authorize?${params.toString()}`;
+
+  window.location.assign(`https://accounts.spotify.com/authorize?${params.toString()}`);
 }
 
 async function exchangeCodeForToken(code) {
   const clientId = getClientId();
   const verifier = localStorage.getItem(STORAGE_KEYS.CODE_VERIFIER);
-  if (!clientId || !verifier) throw new Error('Missing clientId or verifier');
+  if (!clientId || !verifier) throw new Error('Missing clientId or code verifier');
 
   const body = new URLSearchParams({
     client_id: clientId,
     grant_type: 'authorization_code',
     code,
     redirect_uri: getRedirectUri(),
-    code_verifier: verifier
+    code_verifier: verifier,
   });
 
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
-    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
   });
-  if (!res.ok) throw new Error(`Token exchange failed: ${res.status}`);
+  if (!res.ok) {
+    throw new Error(`Token exchange failed: ${res.status} ${await res.text()}`);
+  }
   const tokens = await res.json();
+  tokens.expires_at = Date.now() + (tokens.expires_in * 1000) - 60000; // refresh 60s early
   localStorage.setItem(STORAGE_KEYS.TOKENS, JSON.stringify(tokens));
   return tokens;
 }
@@ -104,26 +130,33 @@ async function refreshTokenIfNeeded() {
   const raw = localStorage.getItem(STORAGE_KEYS.TOKENS);
   if (!raw) return null;
   const tokens = JSON.parse(raw);
+
+  if (tokens.expires_at && Date.now() < tokens.expires_at) return tokens;
   if (!tokens.refresh_token) return tokens;
 
-  // Attempt refresh if access token is older than ~45 min
-  // (You could track expires_at; this keeps it simple.)
   const body = new URLSearchParams({
     client_id: getClientId(),
     grant_type: 'refresh_token',
-    refresh_token: tokens.refresh_token
+    refresh_token: tokens.refresh_token,
   });
+
   const res = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
-    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-    body
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
   });
-  if (!res.ok) return tokens; // fall back
+
+  if (!res.ok) {
+    setStatus(`Refresh failed: ${res.status}`);
+    return tokens; // fall back to existing; user may need to log in again
+  }
+
   const newTokens = await res.json();
   const merged = {
     ...tokens,
     ...newTokens,
-    refresh_token: newTokens.refresh_token || tokens.refresh_token
+    refresh_token: newTokens.refresh_token || tokens.refresh_token,
+    expires_at: Date.now() + (newTokens.expires_in * 1000) - 60000,
   };
   localStorage.setItem(STORAGE_KEYS.TOKENS, JSON.stringify(merged));
   return merged;
@@ -131,49 +164,53 @@ async function refreshTokenIfNeeded() {
 
 function signOut() {
   localStorage.removeItem(STORAGE_KEYS.TOKENS);
-  // keep clientId so user doesn't need to re-enter
+  setStatus('Signed out.');
 }
 
-// ===== App bootstrap =====
-function showSetupModal() {
-  const modal = document.getElementById('setupModal');
-  const redirectCode = document.getElementById('redirectUriCode');
-  const copyBtn = document.getElementById('copyRedirectBtn');
-  const saveBtn = document.getElementById('saveClientIdBtn');
-  const cancelBtn = document.getElementById('cancelSetupBtn');
-  const remember = document.getElementById('rememberClientId');
-  const input = document.getElementById('clientIdInput');
-
-  redirectCode.textContent = getRedirectUri();
-
-  document.addEventListener('DOMContentLoaded', () => {
-  const redirectEl = document.getElementById('redirectUriCode');
-  if (redirectEl) redirectEl.textContent = getRedirectUri();
-});
-
-
-  copyBtn.onclick = () => {
-    navigator.clipboard.writeText(getRedirectUri());
-    copyBtn.textContent = 'Copied';
-    setTimeout(() => (copyBtn.textContent = 'Copy'), 1200);
-  };
-  saveBtn.onclick = () => {
-    setClientId(input.value, remember.checked);
-    if (getClientId()) {
-      modal.style.display = 'none';
-      document.getElementById('accountControls').style.display = 'block';
-    }
-  };
-  cancelBtn.onclick = () => (modal.style.display = 'none');
-
-  modal.style.display = 'block';
+function authHeader() {
+  const raw = localStorage.getItem(STORAGE_KEYS.TOKENS);
+  if (!raw) throw new Error('Not authenticated');
+  const { access_token } = JSON.parse(raw);
+  return { Authorization: `Bearer ${access_token}` };
 }
 
-function showAccountControlsIfReady() {
-  if (getClientId()) {
-    document.getElementById('accountControls').style.display = 'block';
-  }
+// ===========================
+// API examples & rendering
+// ===========================
+async function fetchMe() {
+  const res = await fetch('https://api.spotify.com/v1/me', { headers: authHeader() });
+  if (!res.ok) throw new Error(`ME ${res.status}`);
+  return res.json();
 }
 
-async function handleAuthCallback() {
-  const url = new URL(window.lo
+async function fetchTop(type = 'artists', time_range = 'short_term', limit = 10) {
+  const url = new URL(`https://api.spotify.com/v1/me/top/${type}`);
+  url.searchParams.set('time_range', time_range);
+  url.searchParams.set('limit', String(limit));
+  const res = await fetch(url, { headers: authHeader() });
+  if (!res.ok) throw new Error(`TOP ${type} ${res.status}`);
+  return res.json();
+}
+
+function renderProfile(me) {
+  const card = document.getElementById('profileCard');
+  const el = document.getElementById('profile');
+  if (!card || !el) return;
+  const img = (me.images && me.images[0]) ? `<img class="avatar" src="${me.images[0].url}" alt="avatar">` : '';
+  el.innerHTML = `
+    <div class="profile-row">
+      ${img}
+      <div>
+        <div><strong>${me.display_name || 'Unknown user'}</strong></div>
+        <div>${me.email || ''}</div>
+        <div>Country: ${me.country || '—'}</div>
+      </div>
+    </div>
+  `;
+  card.style.display = 'block';
+}
+
+function renderTop(list, containerId, formatter) {
+  const el = document.getElementById(containerId);
+  const card = document.getElementById('topsCard');
+  if (!el || !
