@@ -28,10 +28,9 @@ function clearClientId() {
 
 // ===== Redirect URI is computed so forks/Pages work automatically =====
 function getRedirectUri() {
-  // Handles GitHub Pages project sites and custom domains:
-  // e.g. https://username.github.io/repo/ -> exact path matters
-  return `${window.location.origin}${window.location.pathname.replace(/index\.html?$/, '')}`;
+  return new URL('./', window.location.href).href; 
 }
+
 
 // ===== PKCE utilities =====
 async function sha256(plain) {
@@ -146,6 +145,12 @@ function showSetupModal() {
   const input = document.getElementById('clientIdInput');
 
   redirectCode.textContent = getRedirectUri();
+
+  document.addEventListener('DOMContentLoaded', () => {
+  const redirectEl = document.getElementById('redirectUriCode');
+  if (redirectEl) redirectEl.textContent = getRedirectUri();
+});
+
 
   copyBtn.onclick = () => {
     navigator.clipboard.writeText(getRedirectUri());
