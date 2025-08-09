@@ -1,76 +1,43 @@
-// ===========================
-// Config & storage utilities
-// ===========================
+// ===== Storage & status =====
 const STORAGE_KEYS = {
   CLIENT_ID: 'spotify_client_id',
   CODE_VERIFIER: 'spotify_code_verifier',
-  TOKENS: 'spotify_tokens', // { access_token, refresh_token, expires_in, token_type, scope, expires_at }
+  TOKENS: 'spotify_tokens',
 };
+
+const $ = (sel) => document.querySelector(sel);
+
+function setStatus(msg) {
+  const card = $('#statusCard');
+  const pre = $('#statusText');
+  if (pre) pre.textContent = String(msg);
+  if (card) card.classList.remove('hidden');
+}
 
 function getClientId() {
   return localStorage.getItem(STORAGE_KEYS.CLIENT_ID) || sessionStorage.getItem(STORAGE_KEYS.CLIENT_ID) || null;
 }
-
 function setClientId(id, persist = true) {
   if (!id || !id.trim()) return;
-  const clean = id.trim();
-  if (persist) {
-    localStorage.setItem(STORAGE_KEYS.CLIENT_ID, clean);
-    sessionStorage.removeItem(STORAGE_KEYS.CLIENT_ID);
-  } else {
-    sessionStorage.setItem(STORAGE_KEYS.CLIENT_ID, clean);
-    localStorage.removeItem(STORAGE_KEYS.CLIENT_ID);
-  }
+  const v = id.trim();
+  persist ? (localStorage.setItem(STORAGE_KEYS.CLIENT_ID, v), sessionStorage.removeItem(STORAGE_KEYS.CLIENT_ID))
+          : (sessionStorage.setItem(STORAGE_KEYS.CLIENT_ID, v), localStorage.removeItem(STORAGE_KEYS.CLIENT_ID));
 }
+function clearClientId() { localStorage.removeItem(STORAGE_KEYS.CLIENT_ID); sessionStorage.removeItem(STORAGE_KEYS.CLIENT_ID); }
 
-function clearClientId() {
-  localStorage.removeItem(STORAGE_KEYS.CLIENT_ID);
-  sessionStorage.removeItem(STORAGE_KEYS.CLIENT_ID);
-}
+// Always returns site root with trailing slash (works for GH Pages/forks)
+function getRedirectUri() { return new URL('./', window.location.href).href; }
+function fillRedirectUri() { const el = $('#redirectUriCode'); if (el) el.textContent = getRedirectUri(); }
 
-function setStatus(msg) {
-  const el = document.getElementById('statusText');
-  const card = document.getElementById('statusCard');
-  if (el && card) {
-    el.textContent = String(msg);
-    card.style.display = 'block';
-  }
-}
-
-// Always return the site root with trailing slash (works for GH Pages project sites, forks, custom domains)
-function getRedirectUri() {
-  return new URL('./', window.location.href).href; // e.g., https://username.github.io/spotify-tracker/
-}
-
-function fillRedirectUri() {
-  const el = document.getElementById('redirectUriCode');
-  if (el) el.textContent = getRedirectUri();
-}
-
-// ===========================
-// PKCE helpers
-// ===========================
+// ===== PKCE helpers =====
 function randomString(n = 64) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-  let s = '';
-  for (let i = 0; i < n; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
-  return s;
+  let s=''; for (let i=0;i<n;i++) s += chars.charAt(Math.floor(Math.random()*chars.length)); return s;
 }
+async function sha256(plain) { return crypto.subtle.digest('SHA-256', new TextEncoder().encode(plain)); }
+function b64url(bytes) { return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
 
-async function sha256(plain) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(plain);
-  return await crypto.subtle.digest('SHA-256', data);
-}
-
-function base64UrlEncode(bytes) {
-  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
-    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-// ===========================
-// Auth flow
-// ===========================
+// ===== OAuth flow =====
 async function startLogin(scopes = [
   'user-read-email',
   'user-top-read',
@@ -78,13 +45,10 @@ async function startLogin(scopes = [
   'playlist-read-private'
 ]) {
   const clientId = getClientId();
-  if (!clientId) {
-    showSetupModal();
-    return;
-  }
+  if (!clientId) { showSetupModal(); return; }
 
   const verifier = randomString(64);
-  const challenge = base64UrlEncode(await sha256(verifier));
+  const challenge = b64url(await sha256(verifier));
   localStorage.setItem(STORAGE_KEYS.CODE_VERIFIER, verifier);
 
   const params = new URLSearchParams({
@@ -93,35 +57,30 @@ async function startLogin(scopes = [
     redirect_uri: getRedirectUri(),
     scope: scopes.join(' '),
     code_challenge_method: 'S256',
-    code_challenge: challenge,
+    code_challenge: challenge
   });
-
-  window.location.assign(`https://accounts.spotify.com/authorize?${params.toString()}`);
+  location.assign(`https://accounts.spotify.com/authorize?${params.toString()}`);
 }
 
 async function exchangeCodeForToken(code) {
   const clientId = getClientId();
   const verifier = localStorage.getItem(STORAGE_KEYS.CODE_VERIFIER);
-  if (!clientId || !verifier) throw new Error('Missing clientId or code verifier');
+  if (!clientId || !verifier) throw new Error('Missing clientId or verifier');
 
   const body = new URLSearchParams({
     client_id: clientId,
     grant_type: 'authorization_code',
     code,
     redirect_uri: getRedirectUri(),
-    code_verifier: verifier,
+    code_verifier: verifier
   });
 
   const res = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
+    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body
   });
-  if (!res.ok) {
-    throw new Error(`Token exchange failed: ${res.status} ${await res.text()}`);
-  }
+  if (!res.ok) throw new Error(`Token exchange failed: ${res.status} ${await res.text()}`);
   const tokens = await res.json();
-  tokens.expires_at = Date.now() + (tokens.expires_in * 1000) - 60000; // refresh 60s early
+  tokens.expires_at = Date.now() + (tokens.expires_in*1000) - 60000;
   localStorage.setItem(STORAGE_KEYS.TOKENS, JSON.stringify(tokens));
   return tokens;
 }
@@ -129,223 +88,219 @@ async function exchangeCodeForToken(code) {
 async function refreshTokenIfNeeded() {
   const raw = localStorage.getItem(STORAGE_KEYS.TOKENS);
   if (!raw) return null;
-  const tokens = JSON.parse(raw);
-
-  if (tokens.expires_at && Date.now() < tokens.expires_at) return tokens;
-  if (!tokens.refresh_token) return tokens;
+  const t = JSON.parse(raw);
+  if (t.expires_at && Date.now() < t.expires_at) return t;
+  if (!t.refresh_token) return t;
 
   const body = new URLSearchParams({
-    client_id: getClientId(),
-    grant_type: 'refresh_token',
-    refresh_token: tokens.refresh_token,
+    client_id: getClientId(), grant_type:'refresh_token', refresh_token: t.refresh_token
   });
-
   const res = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
+    method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body
   });
-
-  if (!res.ok) {
-    setStatus(`Refresh failed: ${res.status}`);
-    return tokens; // fall back to existing; user may need to log in again
-  }
-
-  const newTokens = await res.json();
-  const merged = {
-    ...tokens,
-    ...newTokens,
-    refresh_token: newTokens.refresh_token || tokens.refresh_token,
-    expires_at: Date.now() + (newTokens.expires_in * 1000) - 60000,
-  };
+  if (!res.ok) { setStatus(`Refresh failed: ${res.status}`); return t; }
+  const nt = await res.json();
+  const merged = {...t, ...nt, refresh_token: nt.refresh_token || t.refresh_token,
+                  expires_at: Date.now() + (nt.expires_in*1000) - 60000};
   localStorage.setItem(STORAGE_KEYS.TOKENS, JSON.stringify(merged));
   return merged;
 }
 
-function signOut() {
-  localStorage.removeItem(STORAGE_KEYS.TOKENS);
-  setStatus('Signed out.');
-}
-
-function authHeader() {
+function signOut(){ localStorage.removeItem(STORAGE_KEYS.TOKENS); setStatus('Signed out.'); }
+function authHeader(){
   const raw = localStorage.getItem(STORAGE_KEYS.TOKENS);
   if (!raw) throw new Error('Not authenticated');
   const { access_token } = JSON.parse(raw);
   return { Authorization: `Bearer ${access_token}` };
 }
 
-// ===========================
-// API examples & rendering
-// ===========================
-async function fetchMe() {
-  const res = await fetch('https://api.spotify.com/v1/me', { headers: authHeader() });
-  if (!res.ok) throw new Error(`ME ${res.status}`);
-  return res.json();
+// ===== API calls =====
+async function fetchMe(){
+  const r = await fetch('https://api.spotify.com/v1/me',{headers:authHeader()});
+  if (!r.ok) throw new Error(`ME ${r.status}`); return r.json();
+}
+async function fetchTop(type='artists', time_range='short_term', limit=10){
+  const u = new URL(`https://api.spotify.com/v1/me/top/${type}`);
+  u.searchParams.set('time_range', time_range); u.searchParams.set('limit', String(limit));
+  const r = await fetch(u,{headers:authHeader()}); if(!r.ok) throw new Error(`TOP ${type} ${r.status}`); return r.json();
+}
+async function fetchRecent(limit=50){
+  const u = new URL('https://api.spotify.com/v1/me/player/recently-played');
+  u.searchParams.set('limit', String(Math.min(50, limit)));
+  const r = await fetch(u,{headers:authHeader()}); if(!r.ok) throw new Error(`RECENT ${r.status}`); return r.json();
 }
 
-async function fetchTop(type = 'artists', time_range = 'short_term', limit = 10) {
-  const url = new URL(`https://api.spotify.com/v1/me/top/${type}`);
-  url.searchParams.set('time_range', time_range);
-  url.searchParams.set('limit', String(limit));
-  const res = await fetch(url, { headers: authHeader() });
-  if (!res.ok) throw new Error(`TOP ${type} ${res.status}`);
-  return res.json();
-}
-
-function renderProfile(me) {
-  const card = document.getElementById('profileCard');
-  const el = document.getElementById('profile');
-  if (!card || !el) return;
+// ===== Render helpers =====
+function renderProfile(me){
+  const card = $('#profileCard'); const el = $('#profile'); if (!card||!el) return;
   const img = (me.images && me.images[0]) ? `<img class="avatar" src="${me.images[0].url}" alt="avatar">` : '';
-  el.innerHTML = `
-    <div class="profile-row">
-      ${img}
-      <div>
-        <div><strong>${me.display_name || 'Unknown user'}</strong></div>
-        <div>${me.email || ''}</div>
-        <div>Country: ${me.country || '—'}</div>
-      </div>
-    </div>
-  `;
-  card.style.display = 'block';
+  el.innerHTML = `<div class="profile">${img}<div><div><b>${me.display_name||'—'}</b></div><div>${me.email||''}</div><div>Country: ${me.country||'—'}</div></div></div>`;
+  card.classList.remove('hidden');
+}
+function renderList(items, containerId, formatter){
+  const el = $('#'+containerId); if(!el) return;
+  el.innerHTML=''; items.forEach((x)=>{ const li=document.createElement('li'); li.innerHTML=formatter(x); el.appendChild(li); });
 }
 
-function renderTop(list, containerId, formatter) {
-  const el = document.getElementById(containerId);
-  const card = document.getElementById('topsCard');
-  if (!el || !card) return;
-  el.innerHTML = '';
-  list.items.forEach((item) => {
-    const li = document.createElement('li');
-    li.textContent = formatter(item);
-    el.appendChild(li);
-  });
-  card.style.display = 'block';
-}
+function msToH(ms){ return (ms/3600000); }
+function hours(ms){ return msToH(ms).toFixed(2)+' h'; }
 
-// ===========================
-// Setup modal
-// ===========================
-function showSetupModal() {
-  const modal = document.getElementById('setupModal');
-  const redirectCode = document.getElementById('redirectUriCode');
-  const copyBtn = document.getElementById('copyRedirectBtn');
-  const saveBtn = document.getElementById('saveClientIdBtn');
-  const cancelBtn = document.getElementById('cancelSetupBtn');
-  const remember = document.getElementById('rememberClientId');
-  const input = document.getElementById('clientIdInput');
+// ===== Aggregations =====
+function aggregateRecent(recentJson){
+  // recentJson.items: { track, played_at }, track.duration_ms
+  const byTrack = new Map(); const byArtist = new Map();
+  for (const it of recentJson.items||[]){
+    const t = it.track; if(!t) continue;
+    const tid = t.id || t.name; // fallback if id missing
+    const dur = t.duration_ms || 0;
+    const artists = (t.artists||[]).map(a=>({id:a.id||a.name, name:a.name}));
 
-  if (redirectCode) redirectCode.textContent = getRedirectUri();
+    // Track
+    const tt = byTrack.get(tid) || { id:tid, name:t.name, artists:t.artists?.map(a=>a.name).join(', ')||'—', plays:0, ms:0 };
+    tt.plays += 1; tt.ms += dur; byTrack.set(tid, tt);
 
-  if (copyBtn) copyBtn.onclick = () => {
-    const uri = getRedirectUri();
-    navigator.clipboard.writeText(uri).catch(() => {});
-    copyBtn.textContent = 'Copied';
-    setTimeout(() => (copyBtn.textContent = 'Copy'), 1200);
+    // Artists
+    for (const a of artists){
+      const ar = byArtist.get(a.id) || { id:a.id, name:a.name, plays:0, ms:0 };
+      ar.plays += 1; ar.ms += dur; byArtist.set(a.id, ar);
+    }
+  }
+  const tracks = [...byTrack.values()].sort((a,b)=> b.plays - a.plays || b.ms - a.ms).slice(15);
+  const artists = [...byArtist.values()].sort((a,b)=> b.plays - a.plays || b.ms - a.ms).slice(15);
+  return {
+    tracks: [...byTrack.values()].sort((a,b)=> b.plays - a.plays || b.ms - a.ms).slice(10),
+    artists: [...byArtist.values()].sort((a,b)=> b.plays - a.plays || b.ms - a.ms).slice(10)
   };
+}
 
-  if (saveBtn) saveBtn.onclick = () => {
-    setClientId(input.value, !!(remember && remember.checked));
-    if (getClientId()) {
-      modal.style.display = 'none';
-      document.getElementById('accountControls').style.display = 'block';
+async function renderRecent(){
+  try {
+    const recent = await fetchRecent(50);
+    const agg = aggregateRecent(recent);
+    renderList(agg.tracks, 'recentTracks', (x)=> `<b>${x.name}</b><br><small>${x.artists}</small> — ${x.plays} plays · ${hours(x.ms)}`);
+    renderList(agg.artists, 'recentArtists', (x)=> `<b>${x.name}</b> — ${x.plays} plays · ${hours(x.ms)}`);
+    $('#recentCard')?.classList.remove('hidden');
+  } catch(e){ setStatus('Recent plays unavailable. '+e.message); }
+}
+
+// ===== Imported Extended Streaming History =====
+async function importHistory(files){
+  // Accept multiple JSON files. Expect objects with { endTime, artistName, trackName, msPlayed }
+  const all = [];
+  for (const f of files){
+    try{
+      const txt = await f.text();
+      const data = JSON.parse(txt);
+      if (Array.isArray(data)) all.push(...data);
+    }catch{ /* ignore */ }
+  }
+  if (!all.length){ setStatus('No valid JSON data found.'); return; }
+
+  const byTrack = new Map(); const byArtist = new Map();
+  for (const r of all){
+    const t = (r.trackName || 'Unknown').trim();
+    const a = (r.artistName || 'Unknown').trim();
+    const ms = Number(r.msPlayed||0);
+    const tid = `${a} — ${t}`;
+    const tt = byTrack.get(tid) || { name:t, artists:a, plays:0, ms:0 };
+    tt.plays += 1; tt.ms += ms; byTrack.set(tid, tt);
+
+    const ar = byArtist.get(a) || { name:a, plays:0, ms:0 };
+    ar.plays += 1; ar.ms += ms; byArtist.set(a, ar);
+  }
+  const tracks = [...byTrack.values()].sort((x,y)=> y.ms - x.ms || y.plays - x.plays).slice(10);
+  const artists = [...byArtist.values()].sort((x,y)=> y.ms - x.ms || y.plays - x.plays).slice(10);
+
+  renderList(tracks, 'historyTracks', (x)=> `<b>${x.name}</b><br><small>${x.artists}</small> — ${x.plays} plays · ${hours(x.ms)}`);
+  renderList(artists, 'historyArtists', (x)=> `<b>${x.name}</b> — ${x.plays} plays · ${hours(x.ms)}`);
+  $('#historyCard')?.classList.remove('hidden');
+  setStatus('Imported history computed.');
+}
+
+// ===== UI wiring =====
+function showSetupModal(){
+  fillRedirectUri();
+  $('#setupModal')?.classList.remove('hidden');
+
+  $('#copyRedirectBtn')?.addEventListener('click', ()=>{
+    const uri = getRedirectUri();
+    navigator.clipboard.writeText(uri).catch(()=>{});
+  });
+
+  $('#saveClientIdBtn')?.addEventListener('click', ()=>{
+    const id = $('#clientIdInput').value;
+    const remember = $('#rememberClientId').checked;
+    setClientId(id, remember);
+    if (getClientId()){
+      $('#setupModal')?.classList.add('hidden');
+      $('#accountControls')?.classList.remove('hidden');
       setStatus('Client ID saved. Click “Login with Spotify”.');
     }
-  };
+  });
 
-  if (cancelBtn) cancelBtn.onclick = () => (modal.style.display = 'none');
-
-  modal.style.display = 'block';
+  $('#cancelSetupBtn')?.addEventListener('click', ()=> $('#setupModal')?.classList.add('hidden'));
 }
 
-function showAccountControlsIfReady() {
-  if (getClientId()) {
-    const ac = document.getElementById('accountControls');
-    if (ac) ac.style.display = 'block';
-  }
-}
-
-// ===========================
-// Bootstrap
-// ===========================
-async function handleAuthCallback() {
-  const url = new URL(window.location.href);
-  const code = url.searchParams.get('code');
+async function handleAuthCallback(){
+  const url = new URL(location.href);
   const error = url.searchParams.get('error');
-  if (error) {
-    setStatus(`Auth error: ${error}`);
-    return false;
-  }
+  const code = url.searchParams.get('code');
+  if (error){ setStatus('Auth error: '+error); return false; }
   if (!code) return false;
-
-  try {
+  try{
     await exchangeCodeForToken(code);
-    // Clean the URL
-    url.searchParams.delete('code');
-    url.searchParams.delete('state');
+    url.searchParams.delete('code'); url.searchParams.delete('state');
     history.replaceState({}, document.title, url.toString());
-    setStatus('Authenticated. Loading your data…');
+    setStatus('Authenticated. Loading…');
     return true;
-  } catch (e) {
-    setStatus(String(e));
-    return false;
-  }
+  }catch(e){ setStatus(e.message||String(e)); return false; }
 }
 
-async function initApp() {
-  // Wire buttons
-  const loginBtn = document.getElementById('loginBtn');
-  if (loginBtn) loginBtn.onclick = () => startLogin();
+async function init(){
+  // Header buttons
+  $('#loginBtn')?.addEventListener('click', ()=> startLogin());
+  $('#openSetupBtn')?.addEventListener('click', ()=> showSetupModal());
+  $('#changeClientIdBtn')?.addEventListener('click', ()=> { clearClientId(); showSetupModal(); });
+  $('#clearSessionBtn')?.addEventListener('click', ()=> { signOut(); alert('Signed out. Click “Login with Spotify” to sign in again.'); });
+  $('#historyFile')?.addEventListener('change', (e)=> importHistory(e.target.files));
 
-  const changeClientBtn = document.getElementById('changeClientIdBtn');
-  if (changeClientBtn) changeClientBtn.onclick = () => {
-    clearClientId();
-    showSetupModal();
-  };
-
-  const clearSessionBtn = document.getElementById('clearSessionBtn');
-  if (clearSessionBtn) clearSessionBtn.onclick = () => {
-    signOut();
-    alert('Signed out. Click “Login with Spotify” to sign in again.');
-  };
-
-  // Ensure Redirect URI shows even if modal HTML rendered before JS
   fillRedirectUri();
+  if (getClientId()) $('#accountControls')?.classList.remove('hidden');
 
-  // First-run: prompt for Client ID before anything else
-  if (!getClientId()) {
-    showSetupModal();
-  }
-  showAccountControlsIfReady();
+  const did = await handleAuthCallback();
+  if (!did){ await refreshTokenIfNeeded(); }
 
-  // Handle OAuth callback if present
-  const didHandle = await handleAuthCallback();
-  if (!didHandle) {
-    // If already have tokens, try refresh
-    await refreshTokenIfNeeded();
-  }
-
-  // If authenticated, load some data
-  const tokensRaw = localStorage.getItem(STORAGE_KEYS.TOKENS);
-  if (tokensRaw) {
-    try {
+  // If authenticated, load data
+  const hasTokens = !!localStorage.getItem(STORAGE_KEYS.TOKENS);
+  if (hasTokens){
+    try{
       await refreshTokenIfNeeded();
       const me = await fetchMe();
       renderProfile(me);
+      $('#profileCard')?.classList.remove('hidden');
 
-      const topArtists = await fetchTop('artists', 'short_term', 10);
-      renderTop(topArtists, 'topArtists', (a) => `${a.name}`);
+      // Top lists
+      const timeSel = $('#timeRangeSelect');
+      async function loadTops(){
+        const tr = timeSel?.value || 'short_term';
+        const topArtists = await fetchTop('artists', tr, 10);
+        const topTracks  = await fetchTop('tracks',  tr, 10);
+        renderList(topArtists.items, 'topArtists', (a)=> `<b>${a.name}</b>`);
+        renderList(topTracks.items,  'topTracks',  (t)=> `<b>${t.name}</b><br><small>${t.artists.map(a=>a.name).join(', ')}</small>`);
+        $('#topsCard')?.classList.remove('hidden');
+      }
+      timeSel?.addEventListener('change', loadTops);
+      await loadTops();
 
-      const topTracks = await fetchTop('tracks', 'short_term', 10);
-      renderTop(topTracks, 'topTracks', (t) => `${t.name} — ${t.artists.map(a => a.name).join(', ')}`);
+      // Recent aggregation (counts + hours for last 50)
+      await renderRecent();
+      $('#refreshRecentBtn')?.addEventListener('click', renderRecent);
 
       setStatus('Loaded.');
-    } catch (e) {
-      setStatus(`Ready. (Login to load data) ${e?.message ? ' — ' + e.message : ''}`);
-    }
-  } else {
-    setStatus('Ready. Paste your Client ID and click “Login with Spotify”.');
+    }catch(e){ setStatus('Ready. (Login to load data) '+(e.message||e)); }
+  }else{
+    setStatus('Ready. Click “How to connect” or paste Client ID and Login.');
   }
 }
 
-document.addEventListener('DOMContentLoaded', initApp);
+document.addEventListener('DOMContentLoaded', init);
