@@ -213,4 +213,139 @@ function renderProfile(me) {
 function renderTop(list, containerId, formatter) {
   const el = document.getElementById(containerId);
   const card = document.getElementById('topsCard');
-  if (!el || !
+  if (!el || !card) return;
+  el.innerHTML = '';
+  list.items.forEach((item) => {
+    const li = document.createElement('li');
+    li.textContent = formatter(item);
+    el.appendChild(li);
+  });
+  card.style.display = 'block';
+}
+
+// ===========================
+// Setup modal
+// ===========================
+function showSetupModal() {
+  const modal = document.getElementById('setupModal');
+  const redirectCode = document.getElementById('redirectUriCode');
+  const copyBtn = document.getElementById('copyRedirectBtn');
+  const saveBtn = document.getElementById('saveClientIdBtn');
+  const cancelBtn = document.getElementById('cancelSetupBtn');
+  const remember = document.getElementById('rememberClientId');
+  const input = document.getElementById('clientIdInput');
+
+  if (redirectCode) redirectCode.textContent = getRedirectUri();
+
+  if (copyBtn) copyBtn.onclick = () => {
+    const uri = getRedirectUri();
+    navigator.clipboard.writeText(uri).catch(() => {});
+    copyBtn.textContent = 'Copied';
+    setTimeout(() => (copyBtn.textContent = 'Copy'), 1200);
+  };
+
+  if (saveBtn) saveBtn.onclick = () => {
+    setClientId(input.value, !!(remember && remember.checked));
+    if (getClientId()) {
+      modal.style.display = 'none';
+      document.getElementById('accountControls').style.display = 'block';
+      setStatus('Client ID saved. Click “Login with Spotify”.');
+    }
+  };
+
+  if (cancelBtn) cancelBtn.onclick = () => (modal.style.display = 'none');
+
+  modal.style.display = 'block';
+}
+
+function showAccountControlsIfReady() {
+  if (getClientId()) {
+    const ac = document.getElementById('accountControls');
+    if (ac) ac.style.display = 'block';
+  }
+}
+
+// ===========================
+// Bootstrap
+// ===========================
+async function handleAuthCallback() {
+  const url = new URL(window.location.href);
+  const code = url.searchParams.get('code');
+  const error = url.searchParams.get('error');
+  if (error) {
+    setStatus(`Auth error: ${error}`);
+    return false;
+  }
+  if (!code) return false;
+
+  try {
+    await exchangeCodeForToken(code);
+    // Clean the URL
+    url.searchParams.delete('code');
+    url.searchParams.delete('state');
+    history.replaceState({}, document.title, url.toString());
+    setStatus('Authenticated. Loading your data…');
+    return true;
+  } catch (e) {
+    setStatus(String(e));
+    return false;
+  }
+}
+
+async function initApp() {
+  // Wire buttons
+  const loginBtn = document.getElementById('loginBtn');
+  if (loginBtn) loginBtn.onclick = () => startLogin();
+
+  const changeClientBtn = document.getElementById('changeClientIdBtn');
+  if (changeClientBtn) changeClientBtn.onclick = () => {
+    clearClientId();
+    showSetupModal();
+  };
+
+  const clearSessionBtn = document.getElementById('clearSessionBtn');
+  if (clearSessionBtn) clearSessionBtn.onclick = () => {
+    signOut();
+    alert('Signed out. Click “Login with Spotify” to sign in again.');
+  };
+
+  // Ensure Redirect URI shows even if modal HTML rendered before JS
+  fillRedirectUri();
+
+  // First-run: prompt for Client ID before anything else
+  if (!getClientId()) {
+    showSetupModal();
+  }
+  showAccountControlsIfReady();
+
+  // Handle OAuth callback if present
+  const didHandle = await handleAuthCallback();
+  if (!didHandle) {
+    // If already have tokens, try refresh
+    await refreshTokenIfNeeded();
+  }
+
+  // If authenticated, load some data
+  const tokensRaw = localStorage.getItem(STORAGE_KEYS.TOKENS);
+  if (tokensRaw) {
+    try {
+      await refreshTokenIfNeeded();
+      const me = await fetchMe();
+      renderProfile(me);
+
+      const topArtists = await fetchTop('artists', 'short_term', 10);
+      renderTop(topArtists, 'topArtists', (a) => `${a.name}`);
+
+      const topTracks = await fetchTop('tracks', 'short_term', 10);
+      renderTop(topTracks, 'topTracks', (t) => `${t.name} — ${t.artists.map(a => a.name).join(', ')}`);
+
+      setStatus('Loaded.');
+    } catch (e) {
+      setStatus(`Ready. (Login to load data) ${e?.message ? ' — ' + e.message : ''}`);
+    }
+  } else {
+    setStatus('Ready. Paste your Client ID and click “Login with Spotify”.');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', initApp);
