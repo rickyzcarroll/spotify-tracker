@@ -7,33 +7,64 @@
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
-  <header class="app-header">
-    <h1>Spotify Tracker</h1>
-    <div id="accountControls" class="account-controls" style="display:none;">
-      <button id="changeClientIdBtn" type="button">Change Client ID</button>
-      <button id="clearSessionBtn" type="button">Sign out</button>
+  <header class="nav">
+    <div class="container nav__inner">
+      <div class="brand">
+        <span class="logo">🎧</span>
+        <span class="brand__text">Spotify Tracker</span>
+      </div>
+      <nav class="actions">
+        <button id="loginBtn" class="btn btn--primary">Login with Spotify</button>
+        <div id="accountControls" class="hidden">
+          <button id="changeClientIdBtn" class="btn btn--ghost">Change Client ID</button>
+          <button id="clearSessionBtn" class="btn btn--ghost">Sign out</button>
+        </div>
+      </nav>
     </div>
   </header>
 
-  <main class="app-main">
-    <section class="card">
-      <h2>Get Started</h2>
-      <p>Sign in with Spotify to see your top artists, tracks, and recent listening trends.</p>
-      <button id="loginBtn" class="primary">Login with Spotify</button>
+  <main class="container">
+    <!-- Hero / Instructions -->
+    <section class="hero">
+      <div class="hero__text">
+        <h1>Your listening, made clear.</h1>
+        <p>See your top artists & tracks, plus actual <b>play counts</b> and <b>hours</b> from your recent plays.<br>
+        Want lifetime accuracy? Optionally upload Spotify’s <i>Extended Streaming History</i> JSON.</p>
+        <div class="hero__cta">
+          <button id="openSetupBtn" class="btn">How to connect</button>
+          <label class="file btn btn--ghost">
+            <input id="historyFile" type="file" multiple accept=".json" />
+            Import History JSON
+          </label>
+        </div>
+        <small class="muted">All data stays in your browser. No servers. No secrets.</small>
+      </div>
     </section>
 
-    <section id="statusCard" class="card" style="display:none;">
+    <!-- Status -->
+    <section id="statusCard" class="card hidden">
       <h2>Status</h2>
       <pre id="statusText">Ready.</pre>
     </section>
 
-    <section id="profileCard" class="card" style="display:none;">
-      <h2>Your Profile</h2>
+    <!-- Profile -->
+    <section id="profileCard" class="card hidden">
+      <div class="card__header">
+        <h2>Your Profile</h2>
+      </div>
       <div id="profile"></div>
     </section>
 
-    <section id="topsCard" class="card" style="display:none;">
-      <h2>Your Top Artists & Tracks (short term)</h2>
+    <!-- Top (API) -->
+    <section id="topsCard" class="card hidden">
+      <div class="card__header">
+        <h2>Top Artists & Tracks (Spotify API)</h2>
+        <select id="timeRangeSelect" class="select">
+          <option value="short_term">Last 4 weeks</option>
+          <option value="medium_term">Last 6 months</option>
+          <option value="long_term">All time</option>
+        </select>
+      </div>
       <div class="grid">
         <div>
           <h3>Top Artists</h3>
@@ -44,45 +75,84 @@
           <ol id="topTracks"></ol>
         </div>
       </div>
+      <small class="muted">Note: Spotify’s API doesn’t provide lifetime play counts/hours for these lists.</small>
+    </section>
+
+    <!-- Recent Plays (API, counts + hours for last 50) -->
+    <section id="recentCard" class="card hidden">
+      <div class="card__header">
+        <h2>Recent Plays (last 50)</h2>
+        <button id="refreshRecentBtn" class="btn btn--ghost">Refresh</button>
+      </div>
+      <div class="grid">
+        <div>
+          <h3>Tracks — plays & hours</h3>
+          <ol id="recentTracks"></ol>
+        </div>
+        <div>
+          <h3>Artists — plays & hours</h3>
+          <ol id="recentArtists"></ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- Imported History (accurate counts + hours) -->
+    <section id="historyCard" class="card hidden">
+      <div class="card__header">
+        <h2>Imported History (accurate)</h2>
+        <div class="muted">From Extended Streaming History JSON</div>
+      </div>
+      <div class="grid">
+        <div>
+          <h3>Top Tracks — plays & hours</h3>
+          <ol id="historyTracks"></ol>
+        </div>
+        <div>
+          <h3>Top Artists — plays & hours</h3>
+          <ol id="historyArtists"></ol>
+        </div>
+      </div>
     </section>
   </main>
 
-  <!-- Setup Modal (first-run instructions) -->
-  <div id="setupModal" class="modal-backdrop" style="display:none;">
-    <div class="modal">
+  <!-- Setup Modal -->
+  <div id="setupModal" class="modal hidden">
+    <div class="modal__card">
       <h2>Connect to Spotify</h2>
       <ol class="steps">
         <li>Open the <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify Developer Dashboard</a>.</li>
         <li>Create an app (any name). No client secret needed.</li>
-        <li>Add this as a <strong>Redirect URI</strong> (must match exactly, trailing slash required):<br>
+        <li>Add this as a <b>Redirect URI</b> (exact match, trailing slash required):<br>
           <code id="redirectUriCode"></code>
-          <button id="copyRedirectBtn" type="button">Copy</button>
+          <button id="copyRedirectBtn" class="btn btn--ghost" type="button">Copy</button>
         </li>
-        <li>Copy the app’s <strong>Client ID</strong> and paste it below.</li>
+        <li>Copy the app’s <b>Client ID</b> and paste it below.</li>
       </ol>
 
       <label for="clientIdInput" class="label">Spotify Client ID</label>
-      <input id="clientIdInput" type="text" placeholder="e.g. 123abc..." class="input" />
+      <input id="clientIdInput" class="input" type="text" placeholder="e.g. 123abc..." />
 
       <label class="checkbox">
         <input id="rememberClientId" type="checkbox" checked />
         Remember on this device
       </label>
 
-      <div class="actions">
-        <button id="saveClientIdBtn" class="primary" type="button">Save & Continue</button>
-        <button id="cancelSetupBtn" type="button">Cancel</button>
+      <div class="modal__actions">
+        <button id="saveClientIdBtn" class="btn btn--primary" type="button">Save & Continue</button>
+        <button id="cancelSetupBtn" class="btn" type="button">Cancel</button>
       </div>
 
       <details class="details">
         <summary>Why do I need a Client ID?</summary>
-        <p>Spotify requires OAuth for personal data. The Client ID isn’t a secret; it identifies your app. It’s stored in your browser (local/session storage), not in this site’s code.</p>
+        <p>The Client ID identifies your app to Spotify (not secret). It’s stored locally in your browser, never in this site’s code.</p>
       </details>
     </div>
   </div>
 
-  <footer class="app-footer">
-    <small>Client-side PKCE · No secrets stored · Works on GitHub Pages</small>
+  <footer class="footer">
+    <div class="container">
+      <small class="muted">Client-side PKCE · No secrets stored · Works on GitHub Pages</small>
+    </div>
   </footer>
 
   <script src="./script.js" defer></script>
